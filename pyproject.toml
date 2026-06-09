@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "omi-med-stt"
+version = "0.1.20"
+description = "CLI for Omi Med STT v1 medical speech-to-text"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Omi Health" }]
+dependencies = [
+  "huggingface_hub>=0.23,<2.0",
+  "numpy>=1.24,<2.3",
+  "soundfile>=0.12",
+]
+
+[project.optional-dependencies]
+nemo = ["nemo_toolkit[asr]"]
+mlx = ["parakeet-mlx", "mlx-audio"]
+cpp = []
+dev = ["build>=1.2", "pytest>=8"]
+
+
+[project.urls]
+Homepage = "https://omi.health"
+"Model card" = "https://huggingface.co/omi-health/omi-med-stt-v1"
+"Evaluation" = "https://omi.health"
+Repository = "https://github.com/Omi-Health/omi-med-stt-runtime"
+Issues = "https://github.com/Omi-Health/omi-med-stt-runtime/issues"
+
+[project.scripts]
+omi-med-stt = "omi_stt.cli:main"
+omi-stt = "omi_stt.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/omi_stt"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+  ".claude",
+  ".github",
+  "dist",
+  "local_smoke",
+]

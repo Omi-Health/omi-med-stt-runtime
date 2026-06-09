@@ -1,0 +1,267 @@
+name: cpp runtime bundles
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-bundle-linux:
+    name: omi-med-stt-parakeet-cpp-linux-x86_64-cpu.zip
+    runs-on: ubuntu-latest
+    # Build inside a real Ubuntu 22.04 userland so the bundle links against
+    # GLIBC <= 2.35 and runs on Ubuntu 22.04 LTS and newer. The GitHub
+    # "ubuntu-22.04" runner label silently migrated to the 24.04 image
+    # (GLIBC 2.39), which produced bundles that fail on 22.04 with
+    # "version `GLIBC_2.38' not found".
+    container: ubuntu:22.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Install build dependencies (GLIBC 2.35 toolchain)
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            build-essential cmake git curl ca-certificates unzip zip patchelf \
+            python3 python3-pip python3-venv python-is-python3 pkg-config binutils
+
+      - uses: actions/checkout@v4
+
+      - name: Install package
+        run: python3 -m pip install -U pip && python3 -m pip install -e ".[dev]"
+
+      - name: Build patched runtime
+        env:
+          OMI_MED_STT_CACHE: /tmp/omi-med-stt-cache
+          OMI_MED_STT_GGML_NATIVE: "OFF"
+          OMI_MED_STT_CPP_NO_PREBUILT: "1"
+        run: omi-med-stt install-cpp --cpp-backend cpu --json
+
+      - name: Bundle libgomp (self-contained OpenMP runtime)
+        # ggml links against libgomp.so.1, which minimal images (bare
+          # ubuntu:22.04 and other minimal Linux images do not ship. Bundle it next to
+        # the ggml libraries — same approach as PyTorch wheels; the
+        # subsequent rpath step makes everything resolve via $ORIGIN.
+        env:
+          OMI_MED_STT_CACHE: /tmp/omi-med-stt-cache
+        run: |
+          set -e
+          D=$(python3 -c "from omi_stt.cpp_runtime import _cpp_install_dir; print(_cpp_install_dir('cpu'))")
+          GGML_DIR=$(dirname "$(find "$D" -name 'libggml-base.so.0' | head -1)")
+          cp -v /usr/lib/x86_64-linux-gnu/libgomp.so.1* "$GGML_DIR"/
+
+      - name: Set $ORIGIN rpath on bundled ELF objects
+        # The cmake build bakes ABSOLUTE build-tree rpaths (see
+        # _cmake_rpath_flags), which break once the bundle is relocated to a
+        # user's cache dir. Rewrite every ELF's rpath as $ORIGIN-relative
+        # paths to every shared-object directory in the bundle so both
+        # ctypes (C API) and the parakeet-cli subprocess fallback resolve
+        # libggml*/libparakeet without LD_LIBRARY_PATH.
+        env:
+          OMI_MED_STT_CACHE: /tmp/omi-med-stt-cache
+        shell: python
+        run: |
+          import os
+          import subprocess
+          from pathlib import Path
+          from omi_stt.cpp_runtime import _cpp_install_dir
+
+          d = Path(_cpp_install_dir("cpu"))
+          elves = [
+              p for p in d.rglob("*")
+              if p.is_file() and (".so" in p.name or p.name == "parakeet-cli")
+          ]
+          libdirs = sorted({p.parent for p in elves if ".so" in p.name})
+          for f in elves:
+              entries = ["$ORIGIN"] + [
+                  os.path.join("$ORIGIN", os.path.relpath(ld, f.parent))
+                  for ld in libdirs
+                  if ld != f.parent
+              ]
+              rpath = ":".join(dict.fromkeys(entries))
+              subprocess.run(["patchelf", "--set-rpath", rpath, str(f)], check=True)
+              print(f"rpath set: {f} -> {rpath}")
+
+      - name: Enforce GLIBC ceiling (2.35)
+        env:
+          OMI_MED_STT_CACHE: /tmp/omi-med-stt-cache
+        run: |
+          D=$(python3 -c "from omi_stt.cpp_runtime import _cpp_install_dir; print(_cpp_install_dir('cpu'))")
+          BAD=$(find "$D" -type f \( -name 'parakeet-cli' -o -name '*.so' -o -name '*.so.*' \) -exec objdump -T {} \; 2>/dev/null | grep -oE 'GLIBC_2\.(3[6-9]|[4-9][0-9])' | sort -u || true)
+          if [ -n "$BAD" ]; then
+            echo "Bundle requires too-new glibc symbols: $BAD"
+            exit 1
+          fi
+          echo "GLIBC ceiling OK (<= 2.35)"
+
+      - name: Verify C API exports
+        env:
+          OMI_MED_STT_CACHE: /tmp/omi-med-stt-cache
+        shell: python
+        run: |
+          import ctypes
+          import json
+          from omi_stt.cpp_runtime import _cached_parakeet_lib
+
+          lib_path = _cached_parakeet_lib("cpu")
+          # Raw CDLL without the package's preload helper: this only succeeds
+          # if the $ORIGIN rpaths are correct, which is exactly what the
+          # relocated bundle needs on user machines.
+          lib = ctypes.CDLL(str(lib_path))
+          required = [
+              "parakeet_capi_load",
+              "parakeet_capi_free",
+              "parakeet_capi_transcribe_pcm",
+              "parakeet_capi_transcribe_pcm_batch",
+              "parakeet_capi_set_num_threads",
+          ]
+          missing = [name for name in required if not hasattr(lib, name)]
+          if missing:
+              raise SystemExit(f"Missing C API exports: {missing}")
+          print(json.dumps({"libparakeet": str(lib_path), "exports": required}, indent=2))
+
+      - name: Package runtime bundle
+        env:
+          OMI_MED_STT_CACHE: /tmp/omi-med-stt-cache
+          ASSET: omi-med-stt-parakeet-cpp-linux-x86_64-cpu.zip
+        shell: python
+        run: |
+          import os
+          import zipfile
+          from pathlib import Path
+          from omi_stt.cpp_runtime import _cpp_install_dir
+
+          install_dir = _cpp_install_dir("cpu")
+          asset = Path(os.environ["ASSET"]).resolve()
+          with zipfile.ZipFile(asset, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+              for path in install_dir.rglob("*"):
+                  if path.is_file():
+                      zf.write(path, path.relative_to(install_dir))
+          print(asset)
+
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: omi-med-stt-parakeet-cpp-linux-x86_64-cpu.zip
+          path: omi-med-stt-parakeet-cpp-linux-x86_64-cpu.zip
+          if-no-files-found: error
+
+  build-bundle-windows:
+    name: omi-med-stt-parakeet-cpp-windows-x86_64-cpu.zip
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: python -m pip install -U pip && python -m pip install -e ".[dev]"
+
+      - name: Build patched runtime
+        env:
+          OMI_MED_STT_CACHE: ${{ runner.temp }}/omi-med-stt-cache
+          OMI_MED_STT_GGML_NATIVE: "OFF"
+          OMI_MED_STT_CPP_NO_PREBUILT: "1"
+        run: omi-med-stt install-cpp --cpp-backend cpu --json
+
+      - name: Bundle MSVC runtime DLLs (clean-box support)
+        # Clean Windows installs do not ship msvcp140/vcruntime140; without
+        # app-local copies the bundle fails with a swallowed DLL load error
+        # surfacing as "WinError 193". Microsoft permits app-local deployment
+        # of the VC redistributable CRT DLLs.
+        env:
+          OMI_MED_STT_CACHE: ${{ runner.temp }}/omi-med-stt-cache
+        shell: pwsh
+        run: |
+          $d = python -c "from omi_stt.cpp_runtime import _cpp_install_dir; print(_cpp_install_dir('cpu'))"
+          # Pick the NEWEST CRT by the MSVC redist version directory. A plain
+          # First-1 previously selected 14.29/VC142 (VS2019-era), which
+          # shadowed the system CRT and crashed binaries built with the
+          # v143 14.4x toolset (access violation in parakeet_capi_load).
+          $redist = Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\2022\*\VC\Redist\MSVC\*\x64\Microsoft.VC14*.CRT' -Directory -ErrorAction SilentlyContinue |
+            Sort-Object { [version]($_.FullName -replace '.*MSVC\\([0-9.]+)\\.*','$1') } -Descending |
+            Select-Object -First 1
+          if (-not $redist) { throw 'VC redist CRT directory not found on runner' }
+          Write-Host "redist: $($redist.FullName)"
+          # ggml imports VCOMP140.DLL (MSVC OpenMP), which lives in the
+          # sibling Microsoft.VC14x.OpenMP redist folder, not the CRT one.
+          # Without it a pristine Windows box fails all DLL loads.
+          $openmp = Get-ChildItem (Join-Path $redist.Parent.FullName 'Microsoft.VC14*.OpenMP') -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $openmp) { throw 'VC redist OpenMP directory not found next to CRT' }
+          Write-Host "openmp: $($openmp.FullName)"
+          $dirs = Get-ChildItem -Recurse -Path $d -Filter *.dll | Select-Object -ExpandProperty DirectoryName -Unique
+          if (-not $dirs) { throw "no DLL directories found under $d" }
+          foreach ($dir in $dirs) {
+            Copy-Item (Join-Path $redist.FullName '*.dll') $dir -Force
+            Copy-Item (Join-Path $openmp.FullName '*.dll') $dir -Force
+            Write-Host "copied CRT+OpenMP into: $dir"
+          }
+
+      - name: Verify C API exports
+        env:
+          OMI_MED_STT_CACHE: ${{ runner.temp }}/omi-med-stt-cache
+        shell: python
+        run: |
+          import ctypes
+          import json
+          import os
+          from omi_stt.cpp_runtime import _cached_parakeet_lib, _native_library_directories
+
+          lib_path = _cached_parakeet_lib("cpu")
+          handles = [os.add_dll_directory(str(path)) for path in _native_library_directories(lib_path, "cpu")]
+          lib = ctypes.CDLL(str(lib_path))
+          required = [
+              "parakeet_capi_load",
+              "parakeet_capi_free",
+              "parakeet_capi_transcribe_pcm",
+              "parakeet_capi_transcribe_pcm_batch",
+              "parakeet_capi_set_num_threads",
+          ]
+          missing = [name for name in required if not hasattr(lib, name)]
+          if missing:
+              raise SystemExit(f"Missing C API exports: {missing}")
+          print(json.dumps({"libparakeet": str(lib_path), "exports": required}, indent=2))
+
+      - name: Package runtime bundle
+        env:
+          OMI_MED_STT_CACHE: ${{ runner.temp }}/omi-med-stt-cache
+          ASSET: omi-med-stt-parakeet-cpp-windows-x86_64-cpu.zip
+        shell: python
+        run: |
+          import os
+          import zipfile
+          from pathlib import Path
+          from omi_stt.cpp_runtime import _cpp_install_dir
+
+          install_dir = _cpp_install_dir("cpu")
+          asset = Path(os.environ["ASSET"]).resolve()
+          with zipfile.ZipFile(asset, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+              for path in install_dir.rglob("*"):
+                  if path.is_file():
+                      zf.write(path, path.relative_to(install_dir))
+          print(asset)
+
+      - name: Assert bundle contains MSVC runtime
+        env:
+          ASSET: omi-med-stt-parakeet-cpp-windows-x86_64-cpu.zip
+        shell: python
+        run: |
+          import os
+          import sys
+          import zipfile
+
+          names = [n.lower() for n in zipfile.ZipFile(os.environ["ASSET"]).namelist()]
+          required = ["msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll", "vcomp140.dll"]
+          missing = [r for r in required if not any(n == r or n.endswith("/" + r) for n in names)]
+          if missing:
+              sys.exit(f"MSVC runtime DLLs missing from bundle: {missing}")
+          print("MSVC runtime DLLs present in bundle")
+
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: omi-med-stt-parakeet-cpp-windows-x86_64-cpu.zip
+          path: omi-med-stt-parakeet-cpp-windows-x86_64-cpu.zip
+          if-no-files-found: error

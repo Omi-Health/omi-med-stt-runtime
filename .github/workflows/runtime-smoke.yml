@@ -1,0 +1,111 @@
+name: runtime smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  cpu-gguf:
+    name: ${{ matrix.os }} cpp CPU q8
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: python -m pip install -U pip && python -m pip install -e ".[dev]"
+
+      - name: Run cpp CPU smoke
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          OMI_MED_STT_CACHE: ${{ runner.temp }}/omi-med-stt-cache
+          OMI_MED_STT_CPP_REQUIRE_PREBUILT: "1"
+          OMI_MED_STT_CPP_REQUIRE_CAPI: "1"
+          OMI_MED_STT_CPP_REQUIRE_THREAD_CONTROL: "1"
+        run: python -m omi_stt.cli transcribe tests/assets/omi_med_stt_smoke.wav --runtime cpp --cpp-backend cpu --json > runtime_smoke_cpp_cpu.json
+
+      - name: Upload smoke report
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-smoke-${{ matrix.os }}-cpp-cpu
+          path: runtime_smoke_cpp_cpu.json
+
+  cpu-gguf-ubuntu-lts:
+    # Real-world LTS check: ubuntu-latest is 24.04 (GLIBC 2.39), which masked
+    # a prebuilt bundle built against too-new glibc. This job runs the same
+    # smoke inside a true Ubuntu 22.04 (GLIBC 2.35) userland.
+    name: ubuntu-22.04-container cpp CPU q8
+    runs-on: ubuntu-latest
+    container: ubuntu:22.04
+    timeout-minutes: 30
+    # The cpu-gguf matrix uses max-parallel:1 to avoid Hugging Face 429
+    # rate limits on the ~1GB GGUF download; running this job concurrently
+    # reintroduced exactly that (429s failed two jobs). Chain it after.
+    needs: cpu-gguf
+
+    steps:
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            python3 python3-pip python3-venv ca-certificates curl unzip
+
+      - uses: actions/checkout@v4
+
+      - name: Install package
+        run: python3 -m pip install -U pip && python3 -m pip install -e ".[dev]"
+
+      - name: Run cpp CPU smoke
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          OMI_MED_STT_CACHE: /tmp/omi-med-stt-cache
+          OMI_MED_STT_CPP_REQUIRE_PREBUILT: "1"
+          OMI_MED_STT_CPP_REQUIRE_CAPI: "1"
+          OMI_MED_STT_CPP_REQUIRE_THREAD_CONTROL: "1"
+        run: python3 -m omi_stt.cli transcribe tests/assets/omi_med_stt_smoke.wav --runtime cpp --cpp-backend cpu --json > runtime_smoke_cpp_cpu_ubuntu2204.json
+
+      - name: Upload smoke report
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-smoke-ubuntu-22.04-container-cpp-cpu
+          path: runtime_smoke_cpp_cpu_ubuntu2204.json
+
+  apple-mlx:
+    name: macos-14 MLX
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ffmpeg
+        run: brew install ffmpeg
+
+      - name: Install package
+        run: python -m pip install -U pip && python -m pip install -e ".[dev,mlx]"
+
+      - name: Run MLX smoke
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python -m omi_stt.cli transcribe tests/assets/omi_med_stt_smoke.wav --runtime mlx --json > runtime_smoke_mlx.json
+
+      - name: Upload smoke report
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-smoke-macos-14-mlx
+          path: runtime_smoke_mlx.json
