@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 from . import __version__
-from .audio import make_chunks, normalize_to_16k_mono
+from .audio import AudioDecodeError, find_ffmpeg, make_chunks, normalize_to_16k_mono
 from .merge import merge_transcripts
 from .cpp_runtime import DEFAULT_GGUF_REVISION, install_parakeet_cpp
 
@@ -125,6 +125,9 @@ def _is_driver_too_old_error(exc: BaseException) -> bool:
 
 
 def _handle_runtime_error(exc: Exception, model: str) -> int:
+    if isinstance(exc, AudioDecodeError):
+        print(str(exc), file=sys.stderr)
+        return 2
     if _is_hf_access_error(exc):
         print(
             f"Cannot access {model}: the repository is private/gated or your token is "
@@ -274,10 +277,13 @@ def _cmd_transcribe_long(args: argparse.Namespace, runtime: str, model: str) -> 
 
 
 def cmd_doctor(_: argparse.Namespace) -> int:
+    ffmpeg_path = find_ffmpeg()
     checks = {
         "omi_med_stt_version": __version__,
         "python": sys.version.split()[0],
-        "ffmpeg": bool(shutil.which("ffmpeg")),
+        "ffmpeg": bool(ffmpeg_path),
+        "ffmpeg_path": ffmpeg_path,
+        "audio_input": "wav/flac/ogg native; m4a/mp3/aac/mp4/mov/… via ffmpeg",
         "nvidia_gpu": _has_nvidia_gpu(),
         "parakeet_cli": shutil.which("parakeet-cli"),
         "default_runtime": _default_runtime(),

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "omi-med-stt"
-version = "0.1.20"
+version = "0.1.21"
 description = "CLI for Omi Med STT v1 medical speech-to-text"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,6 +14,9 @@ dependencies = [
   "huggingface_hub>=0.23,<2.0",
   "numpy>=1.24,<2.3",
   "soundfile>=0.12",
+  # Bundled ffmpeg so every install can read m4a/mp3/aac/mp4/… out of the box.
+  # A system ffmpeg on PATH is preferred when present; this is the fallback.
+  "imageio-ffmpeg>=0.5",
 ]
 
 [project.optional-dependencies]

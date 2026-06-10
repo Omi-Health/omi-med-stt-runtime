@@ -34,3 +34,14 @@ The Apple Silicon MLX runtime interoperates with `parakeet-mlx` / MLX Parakeet
 model exports.
 
 Users should consult the upstream project licenses for those dependencies.
+
+## FFmpeg / imageio-ffmpeg
+
+`omi-med-stt` uses `imageio-ffmpeg` to locate a bundled FFmpeg executable when
+no system `ffmpeg` is available. This is used as a subprocess for decoding
+common clinician audio formats such as `.m4a`, `.mp3`, `.aac`, `.mp4`, and
+`.mov` into 16 kHz mono PCM before transcription.
+
+`imageio-ffmpeg` is distributed under the BSD-2-Clause License. Its
+platform-specific wheels may include an FFmpeg executable; FFmpeg is governed
+by its own upstream license terms.

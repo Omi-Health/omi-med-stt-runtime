@@ -44,6 +44,13 @@ omi-med-stt audio.wav --runtime cpp
 omi-med-stt check
 ```
 
+**Audio formats.** WAV, FLAC, OGG and other libsndfile formats are read directly. Other
+inputs — `.m4a` (iPhone Voice Memos / QuickTime), `.mp3`, `.aac`, `.mp4`, `.mov`, `.wma`,
+`.opus`, `.webm`, … — are decoded with **ffmpeg**, which ships with the package, so there's
+nothing extra to install. If a system `ffmpeg` is on your `PATH` it's used instead (e.g. a
+newer build). Whatever the input, audio is downmixed to mono and resampled to 16 kHz
+automatically.
+
 ## Runtime Choices
 
 | Platform | Default runtime | Model artifact |
