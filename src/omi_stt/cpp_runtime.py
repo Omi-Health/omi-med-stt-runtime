@@ -22,7 +22,7 @@ from .hf_auth import hf_token
 
 DEFAULT_GGUF_REPO = "omi-health/omi-med-stt-v1-gguf"
 DEFAULT_GGUF_FILE = "omi-med-stt-v1-q8_0.gguf"
-DEFAULT_GGUF_REVISION = "458c4767686ef6a631911ab4bd876fecd260eab9"
+DEFAULT_GGUF_REVISION = "c78333664b14e8dd8e47ed063be9692ed9054390"
 PARAKEET_CPP_REPO = "https://github.com/mudler/parakeet.cpp"
 PARAKEET_CPP_COMMIT = "b11fe5bca78ad8b342dd559a43d76df3984bb447"
 PARAKEET_CPP_PATCH_VERSION = "omi-med-adapter-v2"
@@ -554,23 +554,34 @@ def _download_or_resolve_gguf(
 
     from huggingface_hub import hf_hub_download
 
-    try:
-        path = Path(
-            hf_hub_download(
-                repo_id=model_id_or_path,
-                filename=gguf_file,
-                repo_type="model",
-                revision=revision,
-                token=hf_token(),
+    def _fetch(rev: str) -> Path:
+        try:
+            return Path(
+                hf_hub_download(
+                    repo_id=model_id_or_path,
+                    filename=gguf_file,
+                    repo_type="model",
+                    revision=rev,
+                    token=hf_token(),
+                )
             )
-        )
+        except Exception:
+            return _download_gguf_direct(
+                model_id_or_path,
+                gguf_file,
+                rev,
+                verify_checksum,
+            )
+
+    try:
+        path = _fetch(revision)
     except Exception:
-        path = _download_gguf_direct(
-            model_id_or_path,
-            gguf_file,
-            revision,
-            verify_checksum,
-        )
+        if revision == "main":
+            raise
+        # The pinned commit can be orphaned if the upstream HF repo's
+        # history gets rewritten (as happened for the default model repo);
+        # fall back to the live branch rather than hard-failing.
+        path = _fetch("main")
     _verify_known_gguf(path, gguf_file, verify_checksum)
     return path
 
