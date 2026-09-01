@@ -85,6 +85,13 @@ def _load_model(model_id_or_path: str):
     config_path, weights_path = _download_or_resolve_model(model_id_or_path)
     config = json.loads(config_path.read_text())
     quantization = config.pop("quantization", None)
+    if quantization:
+        # Bounded attention keeps the default q8 runtime below the memory
+        # budget of ordinary Apple Silicon machines.  Clearing Metal's cache
+        # between files (below) is required: without it, sequential long-file
+        # draws can retain stale state and collapse into unknown tokens.
+        config["encoder"]["self_attention_model"] = "rel_pos_local_attn"
+        config["encoder"]["att_context_size"] = [256, 256]
 
     adapter_rank = config.get("encoder", {}).pop("medical_adapter_rank", None)
     model = from_config(config)
@@ -109,29 +116,131 @@ def _load_model(model_id_or_path: str):
 
 
 def _result_to_text(result) -> str:
+    text = ""
     if hasattr(result, "text"):
         text = result.text
         if text:
-            return str(text).strip()
-    if hasattr(result, "sentences"):
+            text = str(text)
+    if not text and hasattr(result, "sentences"):
         parts = []
         for sentence in result.sentences:
             if hasattr(sentence, "text") and sentence.text:
                 parts.append(str(sentence.text))
             elif hasattr(sentence, "tokens"):
-                parts.extend(str(token.text) for token in sentence.tokens if getattr(token, "text", None))
-        return " ".join(parts).strip()
-    if hasattr(result, "tokens"):
-        return " ".join(str(token.text) for token in result.tokens if getattr(token, "text", None)).strip()
-    return str(result).strip()
+                parts.extend(
+                    str(token.text)
+                    for token in sentence.tokens
+                    if getattr(token, "text", None)
+                )
+        text = " ".join(parts)
+    if not text and hasattr(result, "tokens"):
+        text = " ".join(
+            str(token.text)
+            for token in result.tokens
+            if getattr(token, "text", None)
+        )
+    if not text:
+        text = str(result)
+
+    # SentencePiece's unknown token is rendered as U+2047 by the reference
+    # NeMo runtime.  Keeping the literal string ``<unk>`` changes both the
+    # visible transcript and word-error scoring by inventing the word "unk".
+    return text.replace("<unk>", "⁇").strip()
+
+
+def _centered_logmel(audio, preprocessor):
+    """Build the MLX log-mel input with NeMo's centred analysis window.
+
+    parakeet-mlx historically right-padded a short Hann window to ``n_fft``.
+    NeMo centres it.  The weights were trained with the centred placement, and
+    the mismatch is measurable on the frozen board even though both paths have
+    the same tensor shape.
+    """
+    import mlx.core as mx
+    from parakeet_mlx.audio import hanning
+
+    original_dtype = audio.dtype
+    x = audio
+    if preprocessor.pad_to > 0 and x.shape[-1] < preprocessor.pad_to:
+        x = mx.pad(
+            x,
+            ((0, preprocessor.pad_to - x.shape[-1]),),
+            constant_values=preprocessor.pad_value,
+        )
+    if preprocessor.preemph is not None:
+        x = mx.concat([x[:1], x[1:] - preprocessor.preemph * x[:-1]], axis=0)
+
+    window = hanning(preprocessor.win_length).astype(x.dtype)
+    window_padding = preprocessor.n_fft - preprocessor.win_length
+    left = window_padding // 2
+    window = mx.pad(window, ((left, window_padding - left),))
+
+    reflection = preprocessor.n_fft // 2
+    x = mx.concatenate(
+        [
+            x[1 : reflection + 1][::-1],
+            x,
+            x[-(reflection + 1) : -1][::-1],
+        ]
+    )
+    frame_count = (
+        x.size - preprocessor.win_length + preprocessor.hop_length
+    ) // preprocessor.hop_length
+    frames = mx.as_strided(
+        x,
+        shape=(frame_count, preprocessor.n_fft),
+        strides=(preprocessor.hop_length, 1),
+    )
+    spectrum = mx.fft.rfft(frames * window)
+
+    # Preserve the published MLX checkpoint's established magnitude and
+    # normalization convention; isolated arms showed window placement was the
+    # useful parity fix, while changing all frontend conventions together was
+    # neutral-to-worse.
+    components = mx.abs(mx.view(spectrum, original_dtype))
+    magnitude = components[..., ::2] + components[..., 1::2]
+    if preprocessor.mag_power != 1.0:
+        magnitude = mx.power(magnitude, preprocessor.mag_power)
+    mel = mx.matmul(preprocessor._filterbanks.astype(magnitude.dtype), magnitude.T)
+    mel = mx.log(mel + 1e-5)
+    if preprocessor.normalize == "per_feature":
+        mean = mx.mean(mel, axis=1, keepdims=True)
+        std = mx.std(mel, axis=1, keepdims=True)
+    else:
+        mean = mx.mean(mel)
+        std = mx.std(mel)
+    mel = ((mel - mean) / (std + 1e-5)).T
+    return mx.expand_dims(mel, axis=0).astype(original_dtype)
+
+
+def _generate_centered(model, audio_path: Path):
+    import mlx.core as mx
+    from parakeet_mlx.audio import load_audio
+
+    audio = load_audio(
+        audio_path,
+        model.preprocessor_config.sample_rate,
+        mx.float32,
+    )
+    mel = _centered_logmel(audio, model.preprocessor_config)
+    return model.generate(mel)[0]
+
+
+def _clear_mlx_cache() -> None:
+    import mlx.core as mx
+
+    mx.clear_cache()
 
 
 def transcribe_mlx(audio_paths: list[str | Path], repo_id: str) -> list[str]:
     model = _load_model(str(repo_id))
     texts: list[str] = []
     for path in audio_paths:
-        result = model.transcribe(Path(path))
-        text = _result_to_text(result)
+        try:
+            result = _generate_centered(model, Path(path))
+            text = _result_to_text(result)
+        finally:
+            _clear_mlx_cache()
         if not text:
             raise RuntimeError(f"MLX runtime produced an empty transcript for {path}")
         texts.append(text)

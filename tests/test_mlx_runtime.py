@@ -6,6 +6,41 @@ from pathlib import Path
 from types import ModuleType
 
 
+def test_result_to_text_matches_nemo_unknown_token_rendering() -> None:
+    from omi_stt.mlx_runtime import _result_to_text
+
+    class Result:
+        text = "I<unk>m testing <unk> tokens"
+
+    assert _result_to_text(Result()) == "I⁇m testing ⁇ tokens"
+
+
+def test_transcribe_mlx_uses_centered_frontend(monkeypatch, tmp_path) -> None:
+    from omi_stt import mlx_runtime
+
+    audio = tmp_path / "sample.wav"
+    audio.write_bytes(b"not-read-by-this-unit-test")
+    model = object()
+    calls = []
+
+    class Result:
+        text = "centered result"
+
+    monkeypatch.setattr(mlx_runtime, "_load_model", lambda _repo: model)
+
+    def fake_generate_centered(actual_model, path):
+        calls.append((actual_model, path))
+        return Result()
+
+    monkeypatch.setattr(mlx_runtime, "_generate_centered", fake_generate_centered)
+    cache_clears = []
+    monkeypatch.setattr(mlx_runtime, "_clear_mlx_cache", lambda: cache_clears.append(True))
+
+    assert mlx_runtime.transcribe_mlx([audio], "local-model") == ["centered result"]
+    assert calls == [(model, audio)]
+    assert cache_clears == [True]
+
+
 def test_quantized_mlx_config_quantizes_before_loading(monkeypatch, tmp_path) -> None:
     from omi_stt import mlx_runtime
 
@@ -71,6 +106,8 @@ def test_quantized_mlx_config_quantizes_before_loading(monkeypatch, tmp_path) ->
 
     def fake_from_config(config):
         assert "quantization" not in config
+        assert config["encoder"]["self_attention_model"] == "rel_pos_local_attn"
+        assert config["encoder"]["att_context_size"] == [256, 256]
         calls.append(("from_config", config))
         return fake_model
 
