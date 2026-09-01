@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "omi-med-stt"
-version = "0.1.21"
+version = "0.1.22"
 description = "CLI for Omi Med STT v1 medical speech-to-text"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -20,8 +20,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-nemo = ["nemo_toolkit[asr]"]
-mlx = ["parakeet-mlx", "mlx-audio"]
+nemo = ["nemo_toolkit[asr]==3.0.0"]
+mlx = ["parakeet-mlx"]
 cpp = []
 dev = ["build>=1.2", "pytest>=8"]
 

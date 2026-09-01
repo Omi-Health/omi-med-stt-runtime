@@ -28,6 +28,13 @@ NVIDIA CUDA / NeMo:
 pip install -U "omi-med-stt[nemo]"
 ```
 
+The NVIDIA adapter applies the qualified GPU recipe automatically: NeMo 3.0,
+BF16, local `[256,256]` attention, greedy-batch TDT decoding with
+`max_symbols=10`, timestamps disabled, and duration-sorted batches capped at
+eight files or 900 audio-seconds. Inputs are normalized through FFmpeg to mono
+16 kHz PCM16. A BF16-capable NVIDIA GPU is required; no inference flags are
+needed beyond `--runtime nemo`.
+
 ## Run
 
 ```bash
@@ -78,12 +85,18 @@ artifact only. It does not download the NeMo or MLX weights.
 | **NeMo canonical** | **6.54%** | 2.23% | 4.75% | 97.77% |
 | **MLX q8** | 6.65% | **2.12%** | **4.52%** | **97.88%** |
 
-These numbers compare the released runtime artifacts against each other on the
-same internal benchmark. Visit [omi.health](https://omi.health) for the broader
-model evaluation and product context.
+These numbers compare the unchanged runtime artifacts against each other on the
+same internal benchmark using the runtime recipes shipped in this package.
+Visit [omi.health](https://omi.health) for the broader model evaluation and
+product context.
 
-See the [Apple MLX quality recipe](docs/APPLE_MLX_QUALITY_RECIPE.md) for the
-exact inference settings, environment, speed, memory, and reproducibility notes.
+Runtime recipes and checks:
+
+- [NVIDIA GPU quality recipe](docs/NVIDIA_GPU_QUALITY_RECIPE.md)
+- [Apple MLX q8 quality recipe](docs/APPLE_MLX_QUALITY_RECIPE.md)
+
+The recipe pages include the exact runtime settings, verification commands,
+and paths to the tests that enforce them.
 
 ## Model Repositories
 

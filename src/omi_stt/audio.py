@@ -116,6 +116,50 @@ def normalize_to_16k_mono(path: str | Path, tmp_dir: str | Path | None = None) -
     return AudioInfo(path=out_path, sample_rate=16000, duration=len(audio) / 16000.0)
 
 
+def normalize_with_ffmpeg_to_16k_pcm16(
+    path: str | Path, tmp_dir: str | Path | None = None
+) -> AudioInfo:
+    """Normalize with the exact NeMo GPU input contract: mono 16 kHz PCM16 WAV."""
+    exe = find_ffmpeg()
+    if exe is None:
+        raise AudioDecodeError(
+            "The qualified NVIDIA GPU runtime requires FFmpeg, but no FFmpeg binary was found."
+        )
+    out_dir = Path(tmp_dir) if tmp_dir else Path(tempfile.mkdtemp(prefix="omi_stt_audio_"))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{Path(path).stem}.16k.pcm16.wav"
+    cmd = [
+        exe,
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        str(path),
+        "-map_metadata",
+        "-1",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-c:a",
+        "pcm_s16le",
+        str(out_path),
+    ]
+    try:
+        subprocess.run(cmd, capture_output=True, check=True)
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        detail = getattr(exc, "stderr", b"") or b""
+        tail = detail.decode("utf-8", "replace").strip().splitlines()
+        message = "\n".join(tail[-3:])
+        raise AudioDecodeError(
+            f"FFmpeg could not normalize {Path(path).name!r} for the NVIDIA GPU runtime.\n{message}"
+        ) from exc
+    info = sf.info(str(out_path))
+    return AudioInfo(path=out_path, sample_rate=16000, duration=float(info.duration))
+
+
 def make_chunks(path: str | Path, chunk_seconds: float, overlap: float, tmp_dir: str | Path | None = None) -> list[AudioInfo]:
     if overlap >= chunk_seconds:
         raise ValueError("--overlap must be smaller than --chunk-seconds")

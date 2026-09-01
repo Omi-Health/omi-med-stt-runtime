@@ -77,3 +77,19 @@ def test_corrupt_file_raises_decode_error(tmp_path) -> None:
 
     with pytest.raises(AudioDecodeError):
         read_audio(bad)
+
+
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="ffmpeg not available")
+def test_nemo_normalizer_always_emits_mono_16k_pcm16(tmp_path) -> None:
+    source = tmp_path / "stereo.wav"
+    mono = _write_wav(source, sr=22050, seconds=0.5)
+    sf.write(str(source), np.stack([mono, mono], axis=1), 22050)
+
+    normalized = audio.normalize_with_ffmpeg_to_16k_pcm16(source, tmp_path / "normalized")
+    info = sf.info(str(normalized.path))
+
+    assert normalized.sample_rate == 16000
+    assert abs(normalized.duration - 0.5) < 0.02
+    assert info.samplerate == 16000
+    assert info.channels == 1
+    assert info.subtype == "PCM_16"

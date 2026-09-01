@@ -18,7 +18,11 @@ The Apple draw ran on an M4 Max with 64 GB unified memory using macOS 26.5.2,
 Python 3.12.9, MLX 0.31.2, and parakeet-mlx 0.4.1. It processed 25,853.85
 seconds of audio in 308.44 seconds wall time (83.82x realtime including file
 loading and evaluation overhead; 112.10x across model calls) and peaked at
-5,797.89 MiB of MLX memory.
+5,797.89 MiB of MLX allocator memory. This is not the model download size or
+process RSS: the q8 weights remain 940,623,704 bytes, and a fresh runtime audit
+measured 1.08 GiB RSS on a four-second clip and 1.17
+GiB RSS on the 855.56-second maximum-duration clip. macOS Metal allocations are
+not fully represented by RSS, so these measurements must remain separate.
 
 ## Exact runtime recipe
 
@@ -51,6 +55,18 @@ count in any transcript was 17.
 Full attention scored 6.6176% WER, 2.2284% M-WER, and 21/442 drug errors. It is
 not the default because the 855.56-second longest benchmark file peaked near
 19.8 GiB, versus about 5.8 GiB for the selected bounded-attention recipe.
+
+Bounded attention is primarily the memory and throughput win; it is not being
+credited with the historical-to-current WER delta. On the current full board,
+full attention is only 0.0297 WER points better, while local attention has one
+fewer drug error, runs faster, and cuts the longest-file allocator high-water by
+about 71%.
+
+The unquantized MLX artifact was also tested on the 112-row non-board selection
+gate. It did not improve WER, M-WER, drug errors, or medical recall over q8, so a
+larger full-board unquantized run was not promoted. "Full precision" describes
+weight storage; "full attention" describes context range. They are independent
+settings.
 
 These measurements are for runtime reproducibility, not clinical validation.
 Transcripts still require review before clinical use.

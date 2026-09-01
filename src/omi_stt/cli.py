@@ -12,7 +12,13 @@ import time
 from pathlib import Path
 
 from . import __version__
-from .audio import AudioDecodeError, find_ffmpeg, make_chunks, normalize_to_16k_mono
+from .audio import (
+    AudioDecodeError,
+    find_ffmpeg,
+    make_chunks,
+    normalize_to_16k_mono,
+    normalize_with_ffmpeg_to_16k_pcm16,
+)
 from .merge import merge_transcripts
 from .cpp_runtime import DEFAULT_GGUF_REVISION, install_parakeet_cpp
 
@@ -63,6 +69,7 @@ def _default_runtime() -> str:
     return "cpp"
 
 
+
 def _resolve_runtime_and_model(args: argparse.Namespace) -> tuple[str, str]:
     runtime = _default_runtime() if args.runtime == "auto" else args.runtime
     if args.model:
@@ -74,6 +81,7 @@ def _resolve_runtime_and_model(args: argparse.Namespace) -> tuple[str, str]:
     else:
         model = DEFAULT_NEMO_MODEL
     return runtime, model
+
 
 
 def _runtime_transcribe(paths: list[Path], runtime: str, model: str, args: argparse.Namespace) -> list[str]:
@@ -104,6 +112,7 @@ def _runtime_transcribe(paths: list[Path], runtime: str, model: str, args: argpa
 def _quiet_runtime_transcribe(paths: list[Path], runtime: str, model: str, args: argparse.Namespace) -> list[str]:
     with contextlib.redirect_stdout(sys.stderr):
         return _runtime_transcribe(paths, runtime, model, args)
+
 
 
 def _is_hf_access_error(exc: BaseException) -> bool:
@@ -145,6 +154,9 @@ def _handle_runtime_error(exc: Exception, model: str) -> int:
             file=sys.stderr,
         )
         return 2
+    if isinstance(exc, RuntimeError) and "requires" in str(exc):
+        print(str(exc), file=sys.stderr)
+        return 2
     raise exc
 
 
@@ -175,10 +187,18 @@ def cmd_transcribe(args: argparse.Namespace) -> int:
 def _cmd_transcribe(args: argparse.Namespace, runtime: str, model: str) -> int:
     started = time.time()
     with tempfile.TemporaryDirectory(prefix="omi_stt_") as tmp:
-        info = normalize_to_16k_mono(args.audio, tmp)
+        normalize = (
+            normalize_with_ffmpeg_to_16k_pcm16 if runtime == "nemo" else normalize_to_16k_mono
+        )
+        info = normalize(args.audio, tmp)
         max_seconds = _effective_max_seconds(runtime, args.max_seconds)
         chunk_seconds = _effective_chunk_seconds(runtime, args.max_seconds, info.duration)
-        auto_chunked = runtime in {"cpp", "nemo"} and info.duration > max_seconds
+        # The selected NeMo recipe uses bounded local attention and accepts the
+        # complete recording. Legacy automatic chunk/merge changes hypotheses and
+        # was not part of the qualified GPU result, so only the C++ safety path
+        # auto-chunks here. `transcribe-long` remains available when explicitly
+        # requested by a caller.
+        auto_chunked = runtime == "cpp" and info.duration > max_seconds
         if auto_chunked and runtime == "cpp":
             from .cpp_runtime import transcribe_cpp_pcm_chunks
 
@@ -274,6 +294,7 @@ def _cmd_transcribe_long(args: argparse.Namespace, runtime: str, model: str) -> 
         }
     print(json.dumps(result, indent=2) if args.json else result["transcript"])
     return 0
+
 
 
 def cmd_doctor(_: argparse.Namespace) -> int:

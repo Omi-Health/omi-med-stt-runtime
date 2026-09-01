@@ -12,6 +12,9 @@ Keep this repo focused on the runtime package:
 Do not add private research notes, benchmark manifests, local machine paths,
 cloud resource details, API keys, private transcripts, or raw evaluation output.
 
+Nemotron-based Omi Med STT Streaming work is separate research and should not be
+mixed into this runtime until it has a release decision.
+
 ## Model Repositories
 
 Use the public launch name **Omi Med STT v1**.

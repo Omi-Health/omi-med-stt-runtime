@@ -60,6 +60,9 @@ def test_default_runtime_cpu_prefers_cpp(monkeypatch) -> None:
     assert cli._default_runtime() == "cpp"
 
 
+
+
+
 def test_windows_cpp_default_max_seconds_is_safer(monkeypatch) -> None:
     monkeypatch.setattr(cli.platform, "system", lambda: "Windows")
 
@@ -110,6 +113,39 @@ def test_cpp_long_audio_uses_pcm_chunks(monkeypatch, tmp_path, capsys) -> None:
     assert payload["auto_chunked"] is True
     assert payload["transcript"] == "merged transcript"
     assert payload["chunks"][0]["start"] == 0.0
+
+
+def test_nemo_long_audio_uses_whole_record_recipe(monkeypatch, tmp_path, capsys) -> None:
+    from omi_stt.audio import AudioInfo
+
+    wav = tmp_path / "long.wav"
+    _wav(wav, seconds=1)
+    normalized = tmp_path / "normalized.wav"
+    _wav(normalized, seconds=1)
+    normalizer_calls = []
+
+    def fake_nemo_normalizer(path, _tmp):
+        normalizer_calls.append(Path(path))
+        return AudioInfo(path=normalized, sample_rate=16000, duration=300.0)
+
+    monkeypatch.setattr(cli, "normalize_with_ffmpeg_to_16k_pcm16", fake_nemo_normalizer)
+    monkeypatch.setattr(
+        cli,
+        "normalize_to_16k_mono",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("wrong normalizer")),
+    )
+    monkeypatch.setattr(cli, "_quiet_runtime_transcribe", lambda paths, *_args: ["whole record"])
+
+    args = cli.build_parser().parse_args(
+        ["transcribe", str(wav), "--runtime", "nemo", "--max-seconds", "240", "--json"]
+    )
+    assert args.func(args) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert normalizer_calls == [wav]
+    assert payload["auto_chunked"] is False
+    assert payload["chunks"] is None
+    assert payload["transcript"] == "whole record"
 
 
 def test_version_flag_prints_version_and_exits_zero(capsys) -> None:
