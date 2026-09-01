@@ -75,14 +75,15 @@ artifact only. It does not download the NeMo or MLX weights.
 
 | Artifact | WER | M-WER | Drug M-WER | Medical Recall |
 |---|---:|---:|---:|---:|
-| **NeMo canonical** | **8.30%** | **2.37%** | **4.75%** | **97.95%** |
-| MLX full precision | 8.59% | 2.65% | 5.20% | 97.70% |
-| MLX q8 | 8.61% | 2.75% | 5.20% | 97.63% |
-| GGUF q8_0 | 9.12% | 3.20% | 6.33% | 97.53% |
+| **NeMo canonical** | **6.54%** | 2.23% | 4.75% | 97.77% |
+| **MLX q8** | 6.65% | **2.12%** | **4.52%** | **97.88%** |
 
 These numbers compare the released runtime artifacts against each other on the
 same internal benchmark. Visit [omi.health](https://omi.health) for the broader
 model evaluation and product context.
+
+See the [Apple MLX quality recipe](docs/APPLE_MLX_QUALITY_RECIPE.md) for the
+exact inference settings, environment, speed, memory, and reproducibility notes.
 
 ## Model Repositories
 

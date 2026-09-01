@@ -47,10 +47,8 @@ This repo should show only the small runtime-artifact comparison needed by users
 
 | Artifact | WER | M-WER | Drug M-WER | Medical Recall |
 |---|---:|---:|---:|---:|
-| NeMo canonical | 8.30% | 2.37% | 4.75% | 97.95% |
-| MLX full precision | 8.59% | 2.65% | 5.20% | 97.70% |
-| MLX q8 | 8.61% | 2.75% | 5.20% | 97.63% |
-| GGUF q8_0 | 9.12% | 3.20% | 6.33% | 97.53% |
+| NeMo canonical | 6.54% | 2.23% | 4.75% | 97.77% |
+| MLX q8 | 6.65% | 2.12% | 4.52% | 97.88% |
 
 For broader benchmark comparisons, point users to the Omi website. Do not add
 large benchmark tables or internal evaluation history to this repo.
