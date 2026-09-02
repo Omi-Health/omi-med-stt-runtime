@@ -10,6 +10,10 @@ model built from NVIDIA Parakeet TDT 0.6B v2.
 The package downloads the right model artifact for your machine and transcribes
 audio locally.
 
+**0.2.0** is the first fully qualified three-runtime release: NVIDIA/NeMo,
+Apple MLX q8, and CPU GGUF use documented, benchmarked inference recipes while
+keeping the published model weights unchanged.
+
 ## Install
 
 ```bash

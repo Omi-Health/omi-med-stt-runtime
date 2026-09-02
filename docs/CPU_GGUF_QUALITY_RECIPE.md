@@ -41,7 +41,7 @@ sparse/windowed attention in the C++ engine, not another runtime flag.
 ## Verification
 
 ```bash
-python -m pip install -U "omi-med-stt==0.1.25"
+python -m pip install -U "omi-med-stt==0.2.0"
 omi-med-stt install-cpp --cpp-backend cpu
 omi-med-stt check
 omi-med-stt consultation.wav --runtime cpp

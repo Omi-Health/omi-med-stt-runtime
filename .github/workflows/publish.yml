@@ -1,0 +1,25 @@
+name: publish
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  pypi:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build release artifacts
+        run: |
+          python -m pip install --upgrade build uv
+          python -m build
+      - name: Publish to PyPI with trusted publishing
+        run: uv publish --trusted-publishing always dist/*
