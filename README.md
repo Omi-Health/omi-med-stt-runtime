@@ -86,9 +86,14 @@ parity, not transcript correction).
 |---|---:|---:|---:|---:|
 | **NeMo canonical** | **6.54%** | 2.23% | 4.75% | 97.77% |
 | **MLX q8** | 6.65% | **2.12%** | **4.52%** | **97.88%** |
+| **GGUF q8_0 / CPU** | 7.10% | 2.16% | **4.30%** | 97.84% |
 
 These numbers compare the unchanged runtime artifacts against each other on the
 same internal benchmark using the runtime recipes shipped in this package.
+The CPU row uses the silence-aware long-audio chunking shipped in `0.1.25`.
+Its lower drug-error count in this draw is not a statistically established
+ranking over GPU or MLX; the GPU remains the best overall WER and throughput
+path, while MLX q8 is the selected Apple runtime.
 Visit [omi.health](https://omi.health) for the broader model evaluation and
 product context.
 
@@ -96,6 +101,7 @@ Runtime recipes and checks:
 
 - [NVIDIA GPU quality recipe](docs/NVIDIA_GPU_QUALITY_RECIPE.md)
 - [Apple MLX q8 quality recipe](docs/APPLE_MLX_QUALITY_RECIPE.md)
+- [CPU GGUF quality recipe](docs/CPU_GGUF_QUALITY_RECIPE.md)
 
 The recipe pages include the exact runtime settings, verification commands,
 and paths to the tests that enforce them.

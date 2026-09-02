@@ -52,6 +52,7 @@ This repo should show only the small runtime-artifact comparison needed by users
 |---|---:|---:|---:|---:|
 | NeMo canonical | 6.54% | 2.23% | 4.75% | 97.77% |
 | MLX q8 | 6.65% | 2.12% | 4.52% | 97.88% |
+| GGUF q8_0 / CPU | 7.10% | 2.16% | 4.30% | 97.84% |
 
 For broader benchmark comparisons, point users to the Omi website. Do not add
 large benchmark tables or internal evaluation history to this repo.
