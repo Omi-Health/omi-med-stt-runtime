@@ -538,3 +538,29 @@ def test_download_or_resolve_gguf_survives_permission_error(monkeypatch: pytest.
     assert result == tmp_path / "model.gguf"
     assert downloaded["repo_id"] == "omi-health/omi-med-stt-v1-gguf"
     cpp_runtime._download_or_resolve_gguf.cache_clear()
+
+
+def test_unknown_token_renders_as_u2047() -> None:
+    from omi_stt.cpp_runtime import _render_unknown_tokens
+
+    assert _render_unknown_tokens("I<unk>ve been alright") == "I⁇ve been alright"
+    assert _render_unknown_tokens("no unknowns here") == "no unknowns here"
+
+
+def test_transcribe_cpp_renders_unknown_tokens(monkeypatch, tmp_path) -> None:
+    from omi_stt import cpp_runtime
+
+    model = tmp_path / "model.gguf"
+    model.write_bytes(b"gguf")
+    monkeypatch.setattr(
+        cpp_runtime, "_download_or_resolve_gguf", lambda *a, **k: model
+    )
+    monkeypatch.setattr(cpp_runtime, "_capi_enabled", lambda: False)
+    monkeypatch.setattr(
+        cpp_runtime,
+        "_transcribe_cpp_subprocess",
+        lambda *a, **k: ["That<unk>s good.", "clean"],
+    )
+    texts = cpp_runtime.transcribe_cpp(["a.wav", "b.wav"], str(model), verify_checksum=False)
+
+    assert texts == ["That⁇s good.", "clean"]

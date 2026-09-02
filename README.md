@@ -76,7 +76,9 @@ omi-med-stt audio.wav --runtime cpp
 ```
 
 The CPU path uses a patched `parakeet.cpp` runtime and downloads the q8_0 GGUF
-artifact only. It does not download the NeMo or MLX weights.
+artifact only. It does not download the NeMo or MLX weights. Unknown tokens are
+rendered as the same U+2047 marker the NeMo and MLX runtimes emit (rendering
+parity, not transcript correction).
 
 ## Runtime Quality
 

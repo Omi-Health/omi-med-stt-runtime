@@ -575,6 +575,19 @@ def _download_or_resolve_gguf(
     return path
 
 
+# NeMo and the corrected MLX runtime render the checkpoint's unknown token as
+# U+2047. parakeet.cpp prints the literal "<unk>", which a word scorer reads as
+# the invented word "unk" fused into its neighbors (e.g. "I<unk>ve").
+# Rendering parity only: same visible contract as the other runtimes, no
+# transcript correction.
+UNKNOWN_TOKEN_LITERAL = "<unk>"
+UNKNOWN_TOKEN_RENDERED = "\u2047"
+
+
+def _render_unknown_tokens(text: str) -> str:
+    return text.replace(UNKNOWN_TOKEN_LITERAL, UNKNOWN_TOKEN_RENDERED)
+
+
 def _extract_transcript(stdout: str) -> str:
     lines = [line.strip() for line in stdout.splitlines() if line.strip()]
     if not lines:
@@ -872,6 +885,7 @@ def transcribe_cpp_pcm_chunks(
         else:
             texts = [capi.transcribe_pcm(chunk_audio) for chunk_audio in chunk_audio_batch]
 
+    texts = [_render_unknown_tokens(text) for text in texts]
     for chunk, text in zip(chunks, texts):
         chunk["transcript"] = text
     return merge_transcripts(texts), chunks
@@ -900,14 +914,17 @@ def transcribe_cpp(
     capi_error: Exception | None = None
     if _capi_enabled() and parakeet_cli is None:
         try:
-            return _transcribe_cpp_capi(
-                audio_paths,
-                model_path,
-                auto_install=auto_install,
-                cpp_backend=cpp_backend,
-                decoder=decoder,
-                threads=resolved_threads,
-            )
+            return [
+                _render_unknown_tokens(text)
+                for text in _transcribe_cpp_capi(
+                    audio_paths,
+                    model_path,
+                    auto_install=auto_install,
+                    cpp_backend=cpp_backend,
+                    decoder=decoder,
+                    threads=resolved_threads,
+                )
+            ]
         except Exception as exc:
             if os.environ.get("OMI_MED_STT_CPP_REQUIRE_CAPI", "").upper() in {"1", "TRUE", "ON", "YES"}:
                 raise
@@ -919,15 +936,18 @@ def transcribe_cpp(
             )
 
     try:
-        return _transcribe_cpp_subprocess(
-            audio_paths,
-            model_path,
-            parakeet_cli=parakeet_cli,
-            auto_install=auto_install,
-            cpp_backend=cpp_backend,
-            decoder=decoder,
-            resolved_threads=resolved_threads,
-        )
+        return [
+            _render_unknown_tokens(text)
+            for text in _transcribe_cpp_subprocess(
+                audio_paths,
+                model_path,
+                parakeet_cli=parakeet_cli,
+                auto_install=auto_install,
+                cpp_backend=cpp_backend,
+                decoder=decoder,
+                resolved_threads=resolved_threads,
+            )
+        ]
     except Exception as exc:
         if capi_error is not None:
             raise RuntimeError(
