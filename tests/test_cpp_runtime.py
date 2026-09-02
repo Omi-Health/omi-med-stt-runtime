@@ -564,3 +564,17 @@ def test_transcribe_cpp_renders_unknown_tokens(monkeypatch, tmp_path) -> None:
     texts = cpp_runtime.transcribe_cpp(["a.wav", "b.wav"], str(model), verify_checksum=False)
 
     assert texts == ["That⁇s good.", "clean"]
+
+
+def test_snap_cut_prefers_silence_over_speech() -> None:
+    import numpy as np
+    from omi_stt.cpp_runtime import _snap_cut_to_quiet
+
+    sr = 16000
+    rng = np.random.default_rng(7)
+    audio = (0.3 * rng.standard_normal(sr * 30)).astype(np.float32)
+    audio[18 * sr : 19 * sr] = 0.0  # one second of silence at t=18s
+
+    cut = _snap_cut_to_quiet(audio, lo=10 * sr, hi=30 * sr)
+
+    assert 18 * sr < cut < 19 * sr

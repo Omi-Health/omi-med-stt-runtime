@@ -820,6 +820,34 @@ def _transcribe_cpp_capi(
         return texts
 
 
+# Chunk boundaries for the long-audio path snap to the quietest moment near
+# the nominal cut instead of a fixed sample count. A cut inside a pause means
+# the overlapped region carries little or no speech, so the transcript merge
+# has nothing to disagree about at the seam. Deterministic, numpy-only.
+_SNAP_SEARCH_SECONDS = 12.0
+_SNAP_RMS_WINDOW_SECONDS = 0.3
+_SNAP_RMS_HOP_SECONDS = 0.05
+
+
+def _snap_cut_to_quiet(audio16k: np.ndarray, lo: int, hi: int) -> int:
+    """Return the sample index of the quietest short window inside [lo, hi)."""
+    if hi - lo < int(_SNAP_RMS_WINDOW_SECONDS * 16000) * 2:
+        return hi
+    win = int(_SNAP_RMS_WINDOW_SECONDS * 16000)
+    hop = int(_SNAP_RMS_HOP_SECONDS * 16000)
+    seg = audio16k[lo:hi]
+    sq = seg.astype(np.float64) ** 2
+    csum = np.concatenate(([0.0], np.cumsum(sq)))
+    starts = np.arange(0, len(seg) - win, hop)
+    energies = csum[starts + win] - csum[starts]
+    # Among near-minimal windows, take the LATEST so chunks stay close to the
+    # nominal length (an all-quiet band must not shrink every chunk).
+    floor = float(energies.min())
+    near = np.flatnonzero(energies <= floor * 1.05 + 1e-12)
+    best = int(starts[int(near[-1])])
+    return lo + best + win // 2
+
+
 def transcribe_cpp_pcm_chunks(
     audio_path: str | Path,
     model_id_or_path: str = DEFAULT_GGUF_REPO,
@@ -855,10 +883,16 @@ def transcribe_cpp_pcm_chunks(
 
     chunks: list[dict[str, Any]] = []
     chunk_audio_batch: list[np.ndarray] = []
+    search = int(_SNAP_SEARCH_SECONDS * 16000)
+    min_chunk = int(round(chunk_seconds * 16000 * 0.5))
     start = 0
     index = 0
     while start < len(audio16k):
-        end = min(len(audio16k), start + chunk_len)
+        nominal_end = min(len(audio16k), start + chunk_len)
+        end = nominal_end
+        if nominal_end < len(audio16k):
+            lo = max(start + min_chunk, nominal_end - search)
+            end = _snap_cut_to_quiet(audio16k, lo, nominal_end)
         chunk_audio = audio16k[start:end]
         if len(chunk_audio) == 0:
             break
@@ -870,7 +904,7 @@ def transcribe_cpp_pcm_chunks(
         })
         if end >= len(audio16k):
             break
-        start += step
+        start = max(start + 1, end - int(round(overlap * 16000)))
         index += 1
 
     resolved_threads = _default_cpp_threads(cpp_backend) if threads is None else threads
