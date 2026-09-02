@@ -22,7 +22,7 @@ from .hf_auth import hf_token
 
 DEFAULT_GGUF_REPO = "omi-health/omi-med-stt-v1-gguf"
 DEFAULT_GGUF_FILE = "omi-med-stt-v1-q8_0.gguf"
-DEFAULT_GGUF_REVISION = "458c4767686ef6a631911ab4bd876fecd260eab9"
+DEFAULT_GGUF_REVISION = "c78333664b14e8dd8e47ed063be9692ed9054390"
 PARAKEET_CPP_REPO = "https://github.com/mudler/parakeet.cpp"
 PARAKEET_CPP_COMMIT = "b11fe5bca78ad8b342dd559a43d76df3984bb447"
 PARAKEET_CPP_PATCH_VERSION = "omi-med-adapter-v2"
