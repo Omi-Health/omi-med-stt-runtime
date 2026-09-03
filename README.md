@@ -10,9 +10,8 @@ model built from NVIDIA Parakeet TDT 0.6B v2.
 The package downloads the right model artifact for your machine and transcribes
 audio locally.
 
-**0.2.0** is the first fully qualified three-runtime release: NVIDIA/NeMo,
-Apple MLX q8, and CPU GGUF use documented, benchmarked inference recipes while
-keeping the published model weights unchanged.
+**0.2.1** refreshes the public evaluation text across PyPI and the model cards.
+The runtime code and published model weights are unchanged from **0.2.0**.
 
 ## Install
 
@@ -92,14 +91,23 @@ parity, not transcript correction).
 | **MLX q8** | 6.65% | **2.12%** | **4.52%** | **97.88%** |
 | **GGUF q8_0 / CPU** | 7.10% | 2.16% | **4.30%** | 97.84% |
 
-These numbers compare the unchanged runtime artifacts against each other on the
-same internal benchmark using the runtime recipes shipped in this package.
+These numbers compare the unchanged runtime artifacts on the same frozen
+1,513-clip, 7.18-hour medical benchmark and scorer, using the runtime recipes
+shipped in this package. No dictionary, custom vocabulary, contextual bias, or
+transcript correction was used.
 The CPU row uses the silence-aware long-audio chunking shipped in `0.1.25`.
 Its lower drug-error count in this draw is not a statistically established
 ranking over GPU or MLX; the GPU remains the best overall WER and throughput
 path, while MLX q8 is the selected Apple runtime.
-Visit [omi.health](https://omi.health) for the broader model evaluation and
-product context.
+
+Compared with the open-model rows on Omi's standing 30-system board, the CUDA
+and MLX q8 runtimes have the lowest observed WER, while MLX q8 has the
+second-lowest observed M-WER. These are positions in this benchmark draw, not a
+universal ranking.
+
+See the [full benchmark](https://omi.health/benchmark) and
+[runtime-specific results](https://omi.health/research/omi-med-stt#runtime-results)
+for the broader evaluation and product context.
 
 Runtime recipes and checks:
 
